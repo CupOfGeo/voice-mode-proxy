@@ -1,0 +1,42 @@
+# Voice Mode Proxy settings. Copy to ~/.config/voice-mode-proxy/config.toml (or point
+# VMP_CONFIG at it). Every key is optional; these are the defaults. Any key can also be
+# set as an environment variable: VMP_ plus the key upper-cased, e.g. VMP_VAD_SILENCE_MS.
+
+# Bind address. Loopback by default: the phone comes in through Tailscale Serve, which forwards
+# to this port. Your Tailscale IP skips Serve; "0.0.0.0" exposes the proxy on every network the
+# Mac is on, including a cafe's, in plain HTTP. Only paired devices can use the proxy
+# (`vmp pair`); Tailscale keeps it off the open internet.
+host = "127.0.0.1"
+port = 8791
+
+# Folders the phone can start a session in. "~" works; "~/Code/*" means every git repo under ~/Code.
+projects = ["~/Code/voice-mode-proxy"]
+# Default working directory when the client does not pick one.
+# project_dir = "~/Code/voice-mode-proxy"
+# One JSON Lines log per session lives here.
+# logs_dir = "~/Code/voice-mode-proxy/logs"
+
+# The vad_* timings, speech_rate and kokoro_voice below are defaults: the phone's Settings
+# screen can change them on the running server, and those choices are saved in
+# overrides.json next to this file until reset from the app.
+
+# Speech in
+whisper_model = "mlx-community/whisper-large-v3-turbo"
+stt_enabled = true
+vad_silence_ms = 2000      # quiet time before your words go to Claude
+vad_min_speech_ms = 500    # shorter bursts are ignored
+vad_barge_in_ms = 1500     # sustained speech needed to interrupt a reply
+stt_min_logprob = -0.8     # drop transcripts less confident than this
+stt_max_no_speech = 0.5    # drop transcripts Whisper thinks were silence
+save_audio = ""            # "", "rejected" or "all": keep clips under logs/audio for tuning
+
+# Speech out
+tts_enabled = true
+speech_rate = 1.15
+max_spoken_chars = 0       # 0 = speak whole replies
+# kokoro_dir = "~/Code/voice-mode-proxy/voices/kokoro"
+kokoro_voice = "af_heart"
+
+# Claude Code
+# claude_model = "claude-sonnet-5"
+permission_mode = "auto"   # auto | default | acceptEdits

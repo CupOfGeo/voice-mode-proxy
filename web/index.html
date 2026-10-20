@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#111318">
+<title>Voice Mode Proxy</title>
+<style>
+  :root {
+    --bg: #111318; --panel: #1a1d24; --panel-2: #22262f; --line: #2c313c;
+    --text: #e8eaf0; --muted: #8b93a5; --accent: #6ea8fe; --ok: #3ddc84; --bad: #ff6b6b; --warn: #ffb454;
+    --safe-top: env(safe-area-inset-top, 0px); --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  body { display: flex; flex-direction: column; height: 100dvh; }
+
+  header { padding: calc(var(--safe-top) + 10px) 14px 10px; background: var(--panel); border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 10px; }
+  header .title { flex: 1; min-width: 0; }
+  header h1 { font-size: 17px; margin: 0; font-weight: 600; }
+  #sessline { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pill { font-size: 12px; padding: 3px 9px; border-radius: 999px; background: var(--panel-2); color: var(--muted);
+    display: inline-flex; align-items: center; gap: 6px; }
+  .pill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .pill.idle::before { background: var(--ok); } .pill.working::before { background: var(--warn); animation: blink 1s infinite; }
+  .pill.off::before { background: var(--bad); }
+  @keyframes blink { 50% { opacity: .3; } }
+  #sessbtn { background: none; border: 1px solid var(--line); color: var(--text); border-radius: 8px; padding: 5px 10px; font-size: 13px; }
+
+  #sessions { display: none; padding: 12px 14px; background: var(--panel); border-bottom: 1px solid var(--line); font-size: 14px; }
+  #sessions.open { display: block; }
+  #sessions .row { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+  select, button.small { font-size: 14px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); }
+  button.small { cursor: pointer; }
+  .recent { border-top: 1px solid var(--line); padding-top: 8px; }
+  .recent div { display: flex; gap: 8px; align-items: center; padding: 6px 0; }
+  .recent .meta { flex: 1; min-width: 0; color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .current { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+
+  main { flex: 1; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; -webkit-overflow-scrolling: touch; }
+  .msg { max-width: 92%; padding: 9px 12px; border-radius: 14px; white-space: pre-wrap; word-break: break-word; }
+  .user { align-self: flex-end; background: #2b4a7a; border-bottom-right-radius: 4px; }
+  .assistant { align-self: flex-start; background: var(--panel-2); border-bottom-left-radius: 4px; color: #c9cedb; font-size: 15px; }
+  .speak { align-self: stretch; background: #1f3524; border: 1px solid #2f5c3a; border-radius: 10px; }
+  .speak.error { background: #3a2020; border-color: #6b2f2f; } .speak.system { background: var(--panel-2); border-color: var(--line); color: var(--muted); }
+  .speak .k { display: block; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 3px; }
+  .tool { align-self: flex-start; font-size: 12px; color: var(--muted); padding: 0 6px; }
+  details.tool { align-self: stretch; }
+  details.tool summary { cursor: pointer; }
+  details.tool pre { margin: 4px 0 0; background: #0f1218; padding: 8px; border-radius: 8px;
+    font-size: 11px; white-space: pre-wrap; word-break: break-word; }
+
+  #card { display: none; position: fixed; left: 0; right: 0; bottom: 0; padding: 14px 14px calc(var(--safe-bottom) + 14px);
+    background: #1c2230; border-top: 2px solid var(--warn); box-shadow: 0 -8px 30px rgba(0,0,0,.5); z-index: 10; }
+  #card.open { display: block; }
+  #pair { position: fixed; left: 0; right: 0; bottom: 0; padding: 14px 14px calc(var(--safe-bottom) + 14px); background: var(--panel); border-top: 1px solid var(--line); z-index: 5; }
+  #pair[hidden] { display: none; }
+  #pair input { width: 100%; box-sizing: border-box; margin: 6px 0; padding: 10px; font-size: 16px; border-radius: 8px; border: 1px solid var(--line); background: #0f1218; color: var(--text); }
+  #pair .tool { font-size: 12px; color: var(--muted); margin: 6px 0 0; }
+  #card .spoken { font-size: 17px; font-weight: 600; margin-bottom: 6px; }
+  #card .tool { font-size: 12px; color: var(--muted); padding: 0; margin-bottom: 8px; }
+  #card pre { margin: 0 0 12px; max-height: 30dvh; overflow: auto; background: #0f1218; padding: 8px 10px; border-radius: 8px; font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+  #card .btns { display: flex; gap: 8px; }
+  #card button { flex: 1; font-size: 16px; padding: 13px 8px; border-radius: 10px; border: none; font-weight: 600; }
+  #deny { background: #3a3f4b; color: var(--text); } #allow { background: var(--ok); color: #062; }
+  #allowedits { flex: 1.4; background: #2b4a7a; color: #fff; font-size: 14px; }
+  #card .count { font-size: 12px; color: var(--muted); margin-top: 8px; text-align: center; }
+
+  footer { padding: 10px 14px calc(var(--safe-bottom) + 10px); background: var(--panel); border-top: 1px solid var(--line); display: flex; gap: 8px; }
+  #text { flex: 1; min-width: 0; width: 0; font-size: 16px; padding: 11px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); }
+  #send, #stop { font-size: 15px; padding: 0 14px; flex-shrink: 0; border-radius: 10px; border: none; font-weight: 600; }
+  #send { background: var(--accent); color: #0b1a33; } #stop { background: var(--bad); color: #fff; display: none; }
+  body.working #stop { display: block; } body.working #send { display: none; }
+  #mic { flex-shrink: 0; font-size: 20px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); }
+  #mic.on { border-color: var(--ok); box-shadow: 0 0 0 2px rgba(61,220,132,.25); }
+  #mic.speech { background: #1f3524; border-color: var(--ok); animation: blink .8s infinite; }
+  .heard { align-self: flex-end; font-size: 12px; color: var(--muted); padding: 0 6px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="title">
+    <h1>Voice Mode Proxy</h1>
+    <div id="sessline">No session</div>
+  </div>
+  <span id="status" class="pill off">offline</span>
+  <button id="sessbtn">Sessions</button>
+</header>
+
+<section id="sessions">
+  <div class="current" id="current">No session.</div>
+  <div class="row">
+    <select id="project"></select>
+    <button class="small" id="reloadproj" title="Rescan the project folders for repos added since the server started">↻</button>
+    <button class="small" id="newsess">New session</button>
+    <button class="small" id="linkbtn" title="Copy this session's link to open it on another device">Copy link</button>
+    <button class="small" id="modebtn" title="Tap to cycle: auto → accept edits → ask for everything">Mode: auto</button>
+    <button class="small" id="voicebtn" title="Speak replies aloud">Voice: on</button>
+    <button class="small" id="bargebtn" title="Stop playback when you start talking. Turn off if the speaker keeps interrupting itself.">Barge-in: on</button>
+  </div>
+  <div class="recent" id="recent"></div>
+</section>
+
+<main id="log"></main>
+
+<div id="card">
+  <div class="spoken" id="cspoken"></div>
+  <div class="tool" id="ctool"></div>
+  <pre id="cdetail"></pre>
+  <div class="btns">
+    <button id="deny">Deny</button>
+    <button id="allowedits">Allow edits this session</button>
+    <button id="allow">Allow</button>
+  </div>
+  <div class="count" id="ccount"></div>
+</div>
+
+<form id="pair" hidden>
+  <div class="spoken">Pair this browser</div>
+  <div class="tool">On the Mac, run <code>vmp pair</code> and type the six digits it prints.</div>
+  <input id="paircode" inputmode="numeric" pattern="[0-9 ]*" maxlength="7" placeholder="6-digit code" autocomplete="one-time-code">
+  <input id="pairname" value="Browser" placeholder="This browser's name on the Mac">
+  <button class="small" type="submit">Pair</button>
+  <div class="tool" id="pairmsg"></div>
+</form>
+
+<footer>
+  <button id="mic" title="Open mic, always listening">🎤</button>
+  <input id="text" type="text" placeholder="Type an instruction…" autocomplete="off" autocapitalize="sentences">
+  <button id="stop">Stop</button>
+  <button id="send">Send</button>
+</footer>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const logEl = $("log"), statusEl = $("status"), card = $("card");
+  let ws = null, backoff = 1000, reconnectTimer = null, session = null, projects = [];
+  const pending = [];           // permission requests waiting for a tap, oldest first
+  const EDIT_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
+
+  // ---------------------------------------------------------------- rendering
+  function add(cls, text, kind) {
+    const el = document.createElement("div");
+    el.className = cls;
+    if (kind) { const k = document.createElement("span"); k.className = "k"; k.textContent = kind; el.appendChild(k); }
+    el.appendChild(document.createTextNode(text));
+    logEl.appendChild(el);
+    logEl.scrollTop = logEl.scrollHeight;
+    return el;
+  }
+  function addTool(ev) {  // a tool line; <details> gives the expander for free
+    const text = `${ev.name} ${ev.target || ""}`.trim();
+    const body = formatDetail(ev.detail);
+    if (!body) return add("tool", text);
+    const el = document.createElement("details");
+    el.className = "tool";
+    const summary = document.createElement("summary");
+    summary.textContent = text;
+    const pre = document.createElement("pre");
+    pre.textContent = body;
+    el.append(summary, pre);
+    logEl.appendChild(el);
+    logEl.scrollTop = logEl.scrollHeight;
+    return el;
+  }
+  function render(ev) {  // one transcript or speak event, live or from history
+    if (ev.type === "transcript") add("msg " + ev.role, ev.text);
+    else add("speak " + ev.kind, ev.text, ev.kind);
+  }
+  function setStatus(state) {
+    statusEl.className = "pill " + state;
+    statusEl.textContent = state === "off" ? "offline" : state;
+    document.body.classList.toggle("working", state === "working");
+  }
+  const MODE_LABEL = { auto: "auto", acceptEdits: "accept edits", default: "ask for everything" };
+  const MODE_NEXT = { auto: "acceptEdits", acceptEdits: "default", default: "auto" };
+  // /s/<session id> names the session this page belongs to. On every hello the page asks the
+  // server for it if the server is on a different one (or none, after a restart), once per
+  // server session so a refusal (Claude busy) is not retried on every reconnect.
+  const urlSession = (location.pathname.match(/^\/s\/([A-Za-z0-9_-]+)/) || [])[1] || null;
+  let urlAskedFor = null;
+  function rejoinFromUrl(current) {
+    const have = current ? current.session_id : null;
+    if (!urlSession || have === urlSession || urlAskedFor === have) return;
+    urlAskedFor = have;
+    send({ type: "session_resume", session_id: urlSession });
+  }
+  function showSession(s) {
+    session = s;
+    if (s && s.session_id) history.replaceState(null, "", `/s/${s.session_id}`);
+    $("current").textContent = s
+      ? `${s.project} · ${s.title || s.session_id.slice(0, 8)} · ${s.model || "starting"} · ${MODE_LABEL[s.permission_mode] || s.permission_mode}`
+      : "No session.";
+    $("sessline").textContent = s ? `${s.project} · ${s.title || s.session_id.slice(0, 8)}` : "No session";
+    $("modebtn").textContent = "Mode: " + (s ? MODE_LABEL[s.permission_mode] || s.permission_mode : "auto");
+    if (s) setStatus(s.busy ? "working" : "idle");
+  }
+  function showProjects(list) {
+    projects = list;
+    const sel = $("project"), was = sel.value;
+    sel.innerHTML = "";
+    for (const p of list) { const o = document.createElement("option"); o.value = p.path; o.textContent = p.name; sel.appendChild(o); }
+    if (was) sel.value = was;  // a rescan keeps whatever was picked
+  }
+  async function loadRecent() {
+    const el = $("recent");
+    el.innerHTML = "";
+    try {
+      const res = await fetch("/sessions", { credentials: "same-origin" });
+      if (res.status === 401) { showPair(); el.textContent = "Not paired."; return; }
+      const rows = await res.json();
+      if (!rows.length) { el.textContent = "No past sessions."; return; }
+      for (const r of rows) {
+        const row = document.createElement("div");
+        const meta = document.createElement("span"); meta.className = "meta";
+        meta.textContent = `${(r.cwd || "").split("/").pop()} · ${(r.updated || "").slice(0, 16).replace("T", " ")} · ${r.title || r.first_prompt || ""}`;
+        const btn = document.createElement("button"); btn.className = "small"; btn.textContent = "Resume";
+        btn.onclick = () => { send({ type: "session_resume", session_id: r.session_id }); $("sessions").classList.remove("open"); };
+        row.append(meta, btn); el.appendChild(row);
+      }
+    } catch (e) { el.textContent = "Could not load sessions."; }
+  }
+
+  // ---------------------------------------------------------------- permission card
+  /** The monospace block: command, edits, or file. Mirrored in mobile/src/permission.ts. */
+  function formatDetail(d) {
+    if (!d) return "";
+    if (d.command) return d.command + (d.description ? `\n\n${d.description}` : "");
+    if (d.edits) return d.file + "\n\n" + d.edits.map(e => `--- old\n${e.old}\n+++ new\n${e.new}`).join("\n\n");
+    if (d.file) return `${d.file}\n${d.bytes} bytes`;
+    return JSON.stringify(d, null, 2);
+  }
+  function renderCard() {
+    const req = pending[0];
+    if (!req) { card.classList.remove("open"); return; }
+    $("cspoken").textContent = req.spoken;
+    $("ctool").textContent = req.tool;
+    $("cdetail").textContent = formatDetail(req.detail);
+    $("allowedits").style.display = EDIT_TOOLS.has(req.tool) && session && session.permission_mode === "default" ? "" : "none";
+    $("ccount").textContent = pending.length > 1 ? `${pending.length - 1} more waiting` : "";
+    card.classList.add("open");
+  }
+  function answer(allow, mode) {
+    const req = pending.shift();
+    if (!req) return;
+    send({ type: "permission_response", request_id: req.request_id, allow, mode: mode || null });
+    add("tool", `${allow ? "allowed" : "denied"}: ${req.spoken}`);
+    renderCard();
+  }
+  $("allow").onclick = () => answer(true);
+  $("deny").onclick = () => answer(false);
+  $("allowedits").onclick = () => answer(true, "acceptEdits");
+
+  // ---------------------------------------------------------------- socket
+  function send(obj) {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
+    else add("speak system", "Not connected. Try again in a moment.");
+  }
+  function handle(ev) {
+    switch (ev.type) {
+      case "hello":
+        showProjects(ev.projects || []);
+        showSession(ev.session);
+        rejoinFromUrl(ev.session);
+        voice.server = !!ev.tts;
+        if (!ev.session) setStatus("idle");
+        pending.length = 0; (ev.pending || []).forEach(p => pending.push(p)); renderCard();
+        if (pending.length) hear(pending[0]);
+        break;
+      case "projects": showProjects(ev.projects || []); break;
+      case "session": showSession(ev); break;
+      case "status": setStatus(ev.state); break;
+      case "history":  // the whole conversation so far; replaces whatever the page was showing
+        logEl.replaceChildren();
+        (ev.items || []).forEach(render);
+        break;
+      case "transcript": if (!ev.replay) render(ev); break;
+      case "tool": if (!ev.replay) { addTool(ev); hear(ev); } break;
+      case "speak": if (!ev.replay) render(ev); hear(ev); break;
+      case "permission_request": pending.push(ev); renderCard(); hear(ev); break;
+      case "permission_resolved": {  // answered elsewhere (another device)
+        const i = pending.findIndex(p => p.request_id === ev.request_id);
+        if (i >= 0) { pending.splice(i, 1); renderCard(); }
+        break;
+      }
+      case "error": add("speak error", ev.message, "error"); break;
+      case "turn_done": loadRecent(); break;
+      case "heard": add("heard", `🎤 ${ev.text}`); break;
+      case "vad":
+        $("mic").classList.toggle("speech", !!ev.speech && mic.on);
+        if (ev.speech && voice.bargeIn && (voice.source || voice.active.size)) {
+          add("tool", "stopped speaking: heard you talking");
+          stopSpeaking("barge-in");                    // barge-in: you talk, it shuts up
+        }
+        break;
+    }
+  }
+
+  // ---------------------------------------------------------------- speech out
+  // Server voice: the page asks for each text by id, the server streams back one PCM16
+  // frame per sentence, and the page plays them in order. Falls back to the browser's
+  // own speechSynthesis when the server has no voice loaded.
+  const voice = { on: true, bargeIn: true, server: false, ctx: null, queue: [], source: null, active: new Set() };
+  function setPlaying(on) {                              // tells the server to gate barge-in
+    if (voice.playing === on) return;
+    voice.playing = on;
+    send({ type: "playing", on });
+  }
+  // Playback diagnostics: one line per step into the server's session log, so a cut-off
+  // reply can be traced after the fact without looking at the phone.
+  function clog(text) {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "client_log", text }));
+  }
+  function audioContext() {
+    if (!voice.ctx) {
+      voice.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      voice.ctx.onstatechange = () => clog(`audio context ${voice.ctx.state}`);
+    }
+    if (voice.ctx.state === "suspended") voice.ctx.resume();
+    return voice.ctx;
+  }
+  document.addEventListener("click", () => audioContext(), { once: true, capture: true }); // iOS needs a gesture
+  // The server synthesises every spoken event once and broadcasts the audio; ev.tts is the
+  // id its frames will carry. Without server TTS, fall back to the browser's own voice.
+  function hear(ev) {
+    const text = ev.text || ev.spoken;
+    if (!voice.on || !text) return;
+    if (ev.tts != null) {
+      voice.active.add(ev.tts);
+      clog(`tts #${ev.tts} expected, ${text.length} chars`);
+    } else if (!voice.server && "speechSynthesis" in window) {
+      speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+    }
+  }
+  function onAudioFrame(buf) {
+    const view = new DataView(buf);
+    const hlen = view.getUint32(0);
+    const header = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 4, hlen)));
+    if (!voice.active.has(header.id)) { if (voice.on) clog(`tts #${header.id} frame ${header.seq} ignored (cancelled)`); return; }
+    // Copy the payload: an Int16Array view needs an even byte offset, and the JSON header
+    // length varies (e.g. "last": true vs false), so a view on the original buffer throws.
+    const pcm = new Int16Array(buf.slice(4 + hlen));
+    const ctx = audioContext();
+    clog(`tts #${header.id} frame ${header.seq}${header.last ? " (last)" : ""} received, ${(pcm.length / header.sample_rate).toFixed(2)}s, ctx ${ctx.state} @${ctx.sampleRate}, queue ${voice.queue.length}, source ${voice.source ? "busy" : "idle"}`);
+    const ab = ctx.createBuffer(1, pcm.length, header.sample_rate);
+    const ch = ab.getChannelData(0);
+    for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 32768;
+    voice.queue.push({ id: header.id, seq: header.seq, buffer: ab, last: header.last });
+    if (!voice.source) playNext();
+  }
+  function playNext() {
+    const item = voice.queue.shift();
+    if (!item) { voice.source = null; clog(`queue empty, ${voice.active.size} tts still active`); if (!voice.active.size) setPlaying(false); return; }
+    if (item.last) voice.active.delete(item.id);
+    const ctx = audioContext();
+    const src = ctx.createBufferSource();
+    src.buffer = item.buffer;
+    src.connect(ctx.destination);
+    const started = performance.now();
+    src.onended = () => {
+      clog(`tts #${item.id} frame ${item.seq} ended after ${((performance.now() - started) / 1000).toFixed(2)}s of ${item.buffer.duration.toFixed(2)}s${voice.source === src ? "" : " (stale)"}`);
+      if (voice.source === src) playNext();
+    };
+    voice.source = src;
+    setPlaying(true);
+    clog(`tts #${item.id} frame ${item.seq} playing, ctx ${ctx.state}`);
+    src.start();
+  }
+  function stopSpeaking(reason) {
+    if (voice.source || voice.active.size || voice.queue.length) clog(`stopSpeaking: ${reason || "unknown"}`);
+    for (const id of voice.active) send({ type: "tts_cancel", id });
+    voice.active.clear();
+    voice.queue.length = 0;
+    if (voice.source) { const s = voice.source; voice.source = null; try { s.stop(); } catch (_) {} }
+    if ("speechSynthesis" in window) speechSynthesis.cancel();
+    setPlaying(false);
+  }
+  $("bargebtn").onclick = () => {
+    voice.bargeIn = !voice.bargeIn;
+    $("bargebtn").textContent = "Barge-in: " + (voice.bargeIn ? "on" : "off");
+  };
+  $("voicebtn").onclick = () => {
+    voice.on = !voice.on;
+    if (!voice.on) stopSpeaking("voice off");
+    $("voicebtn").textContent = "Voice: " + (voice.on ? "on" : "off");
+  };
+
+  // ---------------------------------------------------------------- microphone
+  // Open mic, always on. Audio goes to the server as 16 kHz mono PCM16 frames of 100 ms;
+  // the server does voice activity detection and transcription.
+  const mic = { on: false, ctx: null, stream: null, node: null };
+  const WORKLET = `
+    class PcmSender extends AudioWorkletProcessor {
+      constructor() { super(); this.buf = []; this.len = 0; this.ratio = sampleRate / 16000; this.pos = 0; this.last = 0; }
+      process(inputs) {
+        const ch = inputs[0] && inputs[0][0];
+        if (!ch) return true;
+        // linear resample from the context rate to 16 kHz
+        const out = [];
+        for (let i = 0; i < ch.length; i++) {
+          while (this.pos <= i) {
+            const frac = this.pos - Math.floor(this.pos);
+            const a = this.pos < 1 ? this.last : ch[Math.floor(this.pos) - 1];
+            const b = ch[Math.floor(this.pos)];
+            out.push(a + (b - a) * frac);
+            this.pos += this.ratio;
+          }
+        }
+        this.pos -= ch.length; this.last = ch[ch.length - 1];
+        this.buf.push(out); this.len += out.length;
+        if (this.len >= 1600) {                       // 100 ms at 16 kHz
+          const flat = new Int16Array(this.len); let k = 0;
+          for (const part of this.buf) for (const s of part) flat[k++] = Math.max(-1, Math.min(1, s)) * 32767;
+          this.port.postMessage(flat.buffer, [flat.buffer]);
+          this.buf = []; this.len = 0;
+        }
+        return true;
+      }
+    }
+    registerProcessor("pcm-sender", PcmSender);`;
+
+  async function micOn() {
+    try {
+      mic.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
+      mic.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      await mic.ctx.resume();
+      await mic.ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: "application/javascript" })));
+      mic.node = new AudioWorkletNode(mic.ctx, "pcm-sender", { numberOfInputs: 1, numberOfOutputs: 0 });
+      mic.node.port.onmessage = (m) => { if (ws && ws.readyState === WebSocket.OPEN && mic.on) ws.send(m.data); };
+      mic.ctx.createMediaStreamSource(mic.stream).connect(mic.node);
+      mic.on = true;
+      send({ type: "audio_start", sample_rate: 16000 });
+      $("mic").classList.add("on");
+      add("speak system", `Listening. Mic at ${mic.ctx.sampleRate} Hz, sent as 16 kHz.`);
+    } catch (e) {
+      const why = [];
+      if (!window.isSecureContext) why.push("page is not a secure context (needs https)");
+      if (!navigator.mediaDevices) why.push("mediaDevices API unavailable");
+      if (navigator.standalone) why.push("running as a Home Screen web app; try a normal Safari tab");
+      if (e && e.name === "NotAllowedError") why.push("permission denied: check the aA menu → Website Settings → Microphone, and Settings → Safari → Microphone");
+      add("speak error", `Mic failed (${e && e.name || "error"}): ${e && e.message || e}. ${why.join("; ")}`, "error");
+      micOff();
+    }
+  }
+  function micOff() {
+    mic.on = false;
+    if (mic.node) { try { mic.node.disconnect(); } catch (_) {} }
+    if (mic.stream) mic.stream.getTracks().forEach(t => t.stop());
+    if (mic.ctx) { try { mic.ctx.close(); } catch (_) {} }
+    mic.node = mic.stream = mic.ctx = null;
+    $("mic").classList.remove("on", "speech");
+    if (ws && ws.readyState === WebSocket.OPEN) send({ type: "audio_stop" });
+  }
+  $("mic").onclick = () => (mic.on ? micOff() : micOn());
+  // Exactly one socket at a time. iOS freezes the page when the screen locks; on unlock the
+  // old socket may be dead, half-open, or fine. Whatever it is, it gets closed and replaced,
+  // and its handlers are ignored, so messages are never handled twice.
+  function connect() {
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    if (ws) { const old = ws; ws = null; old.onopen = old.onmessage = old.onclose = old.onerror = null; try { old.close(); } catch (_) {} }
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    const sock = new WebSocket(`${proto}://${location.host}/ws`);
+    sock.binaryType = "arraybuffer";
+    sock.onopen = () => { if (sock !== ws) return; backoff = 1000; if (mic.on) send({ type: "audio_start", sample_rate: 16000 }); };
+    sock.onmessage = (m) => { if (sock !== ws) return; if (m.data instanceof ArrayBuffer) { try { onAudioFrame(m.data); } catch (e) { clog(`audio frame error: ${e}`); } } else handle(JSON.parse(m.data)); };
+    sock.onclose = (e) => {
+      if (sock !== ws) return;
+      ws = null;
+      setStatus("off");
+      if (e.code === 4401) { showPair(); return; }   // not paired: the server said so in an error row; no retry
+      reconnectTimer = setTimeout(connect, backoff);
+      backoff = Math.min(backoff * 2, 10000);
+    };
+    sock.onerror = () => { if (sock === ws) sock.close(); };
+    ws = sock;
+  }
+  // Pairing: POST /pair sets an HttpOnly cookie, so the page never sees the token.
+  function showPair(msg) { $("pair").hidden = false; $("pairmsg").textContent = msg || ""; $("paircode").focus(); }
+  $("pair").onsubmit = async (e) => {
+    e.preventDefault();
+    const body = { code: $("paircode").value, name: $("pairname").value.trim() || "Browser" };
+    let r, j = {};
+    try {
+      r = await fetch("/pair", { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      j = await r.json().catch(() => ({}));
+    } catch (err) { $("pairmsg").textContent = `Could not reach the server: ${err}`; return; }
+    if (!r.ok) { $("pairmsg").textContent = j.error || `HTTP ${r.status}`; return; }
+    $("pair").hidden = true;
+    $("paircode").value = "";
+    add("speak system", `Paired as ${j.name}.`);
+    connect();
+  };
+  document.addEventListener("visibilitychange", () => {   // iOS kills sockets when the screen locks
+    if (document.visibilityState === "visible" && (!ws || ws.readyState !== WebSocket.OPEN)) connect();
+  });
+
+  // ---------------------------------------------------------------- input
+  function submit() {
+    const t = $("text").value.trim();
+    if (!t) return;
+    stopSpeaking("typed text");
+    send({ type: "user_text", text: t });
+    $("text").value = "";
+  }
+  $("send").onclick = submit;
+  $("text").addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
+  $("stop").onclick = () => send({ type: "interrupt" });
+  $("sessbtn").onclick = () => { $("sessions").classList.toggle("open"); loadRecent(); };
+  $("reloadproj").onclick = () => send({ type: "projects_reload" });
+  $("newsess").onclick = () => { send({ type: "session_new", cwd: $("project").value }); $("sessions").classList.remove("open"); };
+  $("linkbtn").onclick = async () => {
+    if (!session) { add("speak system", "No session to link yet."); return; }
+    const url = `${location.origin}/s/${session.session_id}`;
+    try { await navigator.clipboard.writeText(url); add("speak system", `Copied ${url}`); }
+    catch (_) { add("speak system", url); }
+  };
+  $("modebtn").onclick = () => { if (session) send({ type: "permission_mode", mode: MODE_NEXT[session.permission_mode] || "auto" }); };
+
+  connect();
+})();
+</script>
+</body>
+</html>

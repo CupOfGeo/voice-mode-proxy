@@ -1,0 +1,39 @@
+[project]
+name = "voice-mode-proxy"
+version = "0.1.0"
+description = "A voice layer in front of Claude Code: speak from a phone, hear short spoken replies"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+dependencies = [
+    "claude-agent-sdk>=0.2.152",
+    "fastapi>=0.141.1",
+    "kokoro-onnx>=0.6.1",
+    "mlx-whisper>=0.4.3",
+    "pydantic-settings>=2.15.0",
+    "silero-vad>=6.2.1",
+    "uvicorn[standard]>=0.52.4",
+    "websockets>=17.1",
+]
+
+[project.scripts]
+vmp = "voice_mode_proxy.cli:main"
+
+# Packaged so `uv sync` installs the vmp entry point; hatchling finds voice_mode_proxy/ itself.
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28",
+    "pytest>=9.1.1",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

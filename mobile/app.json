@@ -1,0 +1,74 @@
+{
+  "expo": {
+    "name": "Voice Mode Proxy",
+    "slug": "voice-mode-proxy",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "scheme": "vmp",
+    "backgroundColor": "#111318",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "net.mainbranch.voicemodeproxy",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "appleTeamId": "4NU2GT2SCQ"
+    },
+    "android": {
+      "package": "net.mainbranch.voicemodeproxy",
+      "adaptiveIcon": {
+        "backgroundColor": "#111318",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
+      ]
+    },
+    "plugins": [
+      "expo-dev-client",
+      [
+        "react-native-audio-api",
+        {
+          "iosBackgroundMode": true,
+          "iosMicrophonePermission": "Voice Mode Proxy listens continuously while a session is open so you can talk to Claude Code hands-free, including with the screen locked.",
+          "androidPermissions": [
+            "android.permission.RECORD_AUDIO",
+            "android.permission.MODIFY_AUDIO_SETTINGS",
+            "android.permission.FOREGROUND_SERVICE",
+            "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+            "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
+          ],
+          "androidForegroundService": true,
+          "androidFSTypes": [
+            "microphone",
+            "mediaPlayback"
+          ]
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "enableSceneSupport": true
+          }
+        }
+      ],
+      "expo-secure-store"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "39bd334c-60de-42b5-9181-6653a0eb56b3"
+      }
+    },
+    "owner": "geomaz"
+  }
+}

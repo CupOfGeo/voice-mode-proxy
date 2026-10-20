@@ -1,0 +1,62 @@
+# Run `pre-commit install` once; then every commit runs these. `pre-commit run --all-files` to run by hand.
+# Python tools are pinned through uvx so the hook needs nothing installed beyond uv.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-yaml
+      - id: check-toml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.0
+    hooks:
+      - id: gitleaks
+
+  - repo: local
+    hooks:
+      - id: ruff-format
+        name: ruff format
+        entry: uvx ruff@0.15.13 format
+        language: system
+        pass_filenames: false
+        files: \.py$
+
+      - id: ruff-lint
+        name: ruff lint
+        entry: uvx ruff@0.15.13 check --fix
+        language: system
+        pass_filenames: false
+        files: \.py$
+
+      - id: ty-check
+        name: ty type check
+        entry: uvx ty@0.0.75 check
+        language: system
+        pass_filenames: false
+        files: \.py$
+
+  # ── Mobile (React Native / Expo) ── same shape as Big Red's apps/mobile hooks
+  - repo: local
+    hooks:
+      - id: mobile-eslint
+        name: "mobile: eslint"
+        entry: bash -c 'cd mobile && npx eslint . --max-warnings=0'
+        language: system
+        pass_filenames: false
+        files: ^mobile/.*\.(ts|tsx|js|jsx)$
+
+      - id: mobile-tsc
+        name: "mobile: tsc"
+        entry: bash -c 'cd mobile && npx tsc --noEmit'
+        language: system
+        pass_filenames: false
+        files: ^mobile/.*\.(ts|tsx)$
+
+      - id: mobile-jest
+        name: "mobile: unit tests"
+        entry: bash -c 'cd mobile && npx jest --silent'
+        language: system
+        pass_filenames: false
+        files: ^mobile/.*\.(ts|tsx)$
