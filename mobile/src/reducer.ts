@@ -148,6 +148,7 @@ export function reduce(s: State, msg: ServerMessage): Partial<State> {
     case "vad":
       return { speech: !!msg.speech };
     case "turn_done":
+    case "dropped":
     case "result":
     case "pong":
       return {};

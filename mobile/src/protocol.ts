@@ -5,7 +5,7 @@
 
 /** The contract version this app speaks; the server sends its own in hello and /health.
  *  Older servers (2026-09-22 and before) send none, which counts as 0. */
-export const PROTOCOL = 3;
+export const PROTOCOL = 2;
 
 /** The close code the server uses for a socket without a valid pairing token. */
 export const UNPAIRED_CLOSE = 4401;
@@ -160,6 +160,7 @@ export type ServerMessage =
   | { type: "turn_done" }
   | { type: "error"; message: string }
   | { type: "heard"; text: string; seconds: number }
+  | { type: "dropped"; text: string; seconds: number }
   | { type: "vad"; speech: boolean }
   | { type: "pong" };
 

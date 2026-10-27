@@ -19,3 +19,9 @@ No order. Each becomes a step with a done condition when picked up.
      acronyms and file paths are the risk).
    - Then the bundle itself. A Dockerfile only serves text-only mode (no Apple GPU in a
      container), so the Homebrew formula is the real target.
+
+2. **Garbled outdoor speech.** Forgejo #2. The `stt_min_logprob` gate was right: re-transcribing the
+   2026-10-24 drops with full large-v3 recovered one sentence of ten, and the clips sound choppy.
+   Drops were invisible; c34ce5a added a buzz for them and a bell for speech that goes through.
+   - Left: why outdoor audio arrives broken (wind, `voiceChat` processing, or the input). A/B on a
+     walk: phone mic vs AirPods, `voiceChat` on vs off; clips save to `logs/audio/`.

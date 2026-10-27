@@ -2,8 +2,8 @@
  * The main screen: status, session line, transcript, composer. Step 2 of IOS-PLAN.md.
  * Sessions and the permission card arrive in step 3, audio in steps 4 and 5.
  */
-import React, { useCallback, useLayoutEffect, useMemo } from "react";
-import { FlatList, KeyboardAvoidingView, Platform, StyleSheet, View } from "react-native";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo } from "react";
+import { AppState, FlatList, Keyboard, KeyboardAvoidingView, Platform, StyleSheet, View } from "react-native";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { Button, IconButton, Text } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -63,6 +63,14 @@ export default function VoiceScreen({ navigation }: RootScreenProps<"Voice">) {
   // and stays at the bottom, on first mount, on history replace, and on coming back from
   // another screen. No scrollToEnd bookkeeping.
   const newestFirst = useMemo(() => [...rows].reverse(), [rows]);
+
+  // A keyboard left up across a lock comes back with KeyboardAvoidingView padding far too
+  // tall: composer shoved under the header, transcript squashed to nothing, nothing to drag
+  // to dismiss (2026-10-25). Leaving the app puts the keyboard away, so reopening starts clean.
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (s) => s !== "active" && Keyboard.dismiss());
+    return () => sub.remove();
+  }, []);
 
   const onSend = useCallback((text: string) => {
     stopSpeaking("typed text");

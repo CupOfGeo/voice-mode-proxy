@@ -66,8 +66,9 @@ class SpeechToText:
         self.load_seconds = time.time() - t
         self._ready = True
 
-    def transcribe(self, audio: np.ndarray) -> str:
-        """audio: float32 mono at 16 kHz in [-1, 1]. Returns '' for nothing worth sending on."""
+    def transcribe(self, audio: np.ndarray) -> tuple[str, str]:
+        """audio: float32 mono at 16 kHz in [-1, 1]. Returns (text, reason); a non-empty reason
+        ("empty", "hallucination", "no-speech", "low-confidence") means the text is not worth sending on."""
         result = self._mlx_whisper.transcribe(
             audio,
             path_or_hf_repo=self.model,
@@ -90,8 +91,10 @@ class SpeechToText:
             reason = "empty"  # Whisper itself heard nothing
         elif text.strip(" .!?,").lower() in HALLUCINATIONS:
             reason = "hallucination"
-        elif segments and (logprob < self.min_logprob or no_speech > self.max_no_speech or repetitive):
-            reason = "low-confidence"
+        elif segments and (no_speech > self.max_no_speech or repetitive):
+            reason = "no-speech"  # noise Whisper put words to; the phone is not told
+        elif segments and logprob < self.min_logprob:
+            reason = "low-confidence"  # speech, but too garbled to trust
         if reason and text:
             log.info(
                 "dropped %s transcript %r (logprob %.2f, no_speech %.2f, %.1fs)",
@@ -105,7 +108,7 @@ class SpeechToText:
             log.debug("transcript %r (logprob %.2f, no_speech %.2f)", text, logprob, no_speech)
         if self.save_audio and self._ready and (reason or self.save_audio == "all"):
             self._save(audio, text, reason, logprob, no_speech)
-        return "" if reason else text
+        return text, reason
 
     def _save(self, audio: np.ndarray, text: str, reason: str, logprob: float, no_speech: float) -> None:
         """One WAV per utterance plus a line in index.jsonl so clips can be replayed and scored later."""
@@ -223,6 +226,7 @@ class AudioPipeline:
         stt: SpeechToText,
         on_text: Callable[[str, float], Awaitable[None]],
         on_speaking: Callable[[bool], Awaitable[None]],
+        on_dropped: Callable[[str, float], Awaitable[None]],
         barge_in_ms: int,
         silence_ms: int,
         min_speech_ms: int,
@@ -230,6 +234,7 @@ class AudioPipeline:
         self.stt = stt
         self.on_text = on_text
         self.on_speaking = on_speaking
+        self.on_dropped = on_dropped
         self.barge_in_ms = barge_in_ms
         self.playing = False  # set from the client's {"type": "playing"} messages
         self.segmenter = VadSegmenter(min_silence_ms=silence_ms, min_speech_ms=min_speech_ms)
@@ -254,9 +259,11 @@ class AudioPipeline:
             await self.on_speaking(False)
         for audio in utterances:
             seconds = len(audio) / SAMPLE_RATE
-            text = await asyncio.to_thread(self.stt.transcribe, audio)
-            if text:
+            text, reason = await asyncio.to_thread(self.stt.transcribe, audio)
+            if not reason:
                 await self.on_text(text, seconds)
+            elif reason == "low-confidence":  # someone talked and we couldn't make it out
+                await self.on_dropped(text, seconds)
 
     def reset(self) -> None:
         self.segmenter.reset()
@@ -290,8 +297,10 @@ def _main(paths: list[str]) -> None:
         for i in range(0, len(pcm), frame):
             for utt in seg.feed(pcm[i : i + frame]):
                 t1 = time.time()
-                text = stt.transcribe(utt)
-                print(f"  utterance {len(utt) / SAMPLE_RATE:.2f}s -> {time.time() - t1:.2f}s whisper -> {text!r}")
+                text, reason = stt.transcribe(utt)
+                print(
+                    f"  utterance {len(utt) / SAMPLE_RATE:.2f}s -> {time.time() - t1:.2f}s whisper -> {text!r} {reason}"
+                )
         print(f"  streamed in {time.time() - t0:.2f}s\n")
 
 

@@ -1,6 +1,6 @@
 [project]
 name = "voice-mode-proxy"
-version = "0.1.0"
+version = "0.2.0"
 description = "A voice layer in front of Claude Code: speak from a phone, hear short spoken replies"
 readme = "README.md"
 license = "MIT"

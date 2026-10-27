@@ -26,13 +26,14 @@ WebSocket protocol, JSON messages, at /ws
     {"type": "ping"}
 
   server -> client
+    {"type": "dropped", "text": "...", "seconds": 2.3}       an utterance too garbled to send (low confidence)
     {"type": "vad", "speech": true|false}                    the mic stream crossed into/out of speech
     {"type": "heard", "text": "...", "seconds": 2.3}         an utterance was transcribed and queued
     <binary frame>   4-byte big-endian header length, JSON header
                      {"id", "seq", "last", "sample_rate"}, then mono PCM16 for one sentence.
                      "id" matches the "tts" field of the speak/permission_request event it voices.
-    {"type": "hello", "protocol": 3, "session": {...}|null, "projects": [{"name","path"}], "pending": [...]}
-                     "protocol" is PROTOCOL below; bump it with any change to this contract.
+    {"type": "hello", "protocol": 2, "session": {...}|null, "projects": [{"name","path"}], "pending": [...]}
+                     "protocol" is PROTOCOL below; bump it only for a breaking change (see PROTOCOL).
                      The app refuses a server whose number is missing or ahead of its own.
     {"type": "projects", "projects": [{"name","path"}]}      a rescan, after projects_reload
     {"type": "settings", "values": {...}, "defaults": {...}, "voices": [...]}   after hello and on change;
@@ -109,10 +110,11 @@ def _spoken_text(event: dict) -> str:
 
 
 MAX_BACKLOG = 50
-# Bump with any change to the message contract in the docstring above. The app compares
-# it against the version it speaks (mobile/src/protocol.ts) and says "server too old"
+# Bump only for a breaking change: a renamed or removed field or message, or a changed meaning.
+# New optional fields and message types don't bump; both sides ignore what they don't know.
+# The app compares it against the version it speaks (mobile/src/protocol.ts) and says "server too old"
 # rather than misbehave. Missing (a server older than 2026-09-22) reads as 0.
-PROTOCOL = 3
+PROTOCOL = 2
 PERMISSION_MODES = {"auto", "default", "acceptEdits"}
 WEB_INDEX = ROOT / "web" / "index.html"
 
@@ -352,6 +354,9 @@ class Hub:
                 await self.emit({"type": "heard", "text": text, "seconds": round(seconds, 2)})
                 await self.queue.put(text)
 
+            async def on_dropped(text: str, seconds: float) -> None:
+                await self.emit({"type": "dropped", "text": text, "seconds": round(seconds, 2)})
+
             async def on_speaking(speech: bool) -> None:
                 await self.emit({"type": "vad", "speech": speech})
 
@@ -360,6 +365,7 @@ class Hub:
                 self.stt,
                 on_text,
                 on_speaking,
+                on_dropped,
                 silence_ms=tune.vad_silence_ms,
                 min_speech_ms=tune.vad_min_speech_ms,
                 barge_in_ms=tune.vad_barge_in_ms,
@@ -542,8 +548,8 @@ class Hub:
                 pipe = self.audio.get(ws)
                 if pipe:
                     pipe.playing = bool(msg.get("on"))
-            else:
-                await ws.send_json({"type": "error", "message": f"unknown message type {kind!r}"})
+            else:  # a newer client's message; ignore it (see PROTOCOL)
+                log.info("ignored unknown message type %r", kind)
         except Exception as e:  # noqa: BLE001 - report to the client, keep the socket open
             log.exception("dispatch failed")
             await ws.send_json({"type": "error", "message": f"{type(e).__name__}: {e}"})

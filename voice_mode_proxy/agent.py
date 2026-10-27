@@ -2,7 +2,9 @@
 
 Responsibilities:
   * start a new or resumed session in a working directory
-  * run one turn at a time: send text, stream SDK messages, log them
+  * run one turn at a time: send text, wait for the turn to close
+  * read the SDK stream for the session's whole life: log, relay, close turns, including
+    the ones Claude starts itself
   * route permission requests out as events and wait for the answer
   * at the end of a turn, produce what should be spoken
 """
@@ -11,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -36,6 +39,10 @@ from .session_log import SessionLog, read_title
 from .text import sentences, speakable
 
 Emit = Callable[[dict], Awaitable[None]]
+
+# The SDK prefers the CLI bundled in its own wheel, which lags the installed one and so does not
+# know newer models (2.1.259 vs 2.1.310 on 2026-10-24: no claude-opus-5-5). Use the installed one.
+CLI_PATH = shutil.which("claude")
 
 TITLE_MODEL = "claude-haiku-4-5-20251001"
 TITLE_MAX_CHARS = 60
@@ -225,6 +232,10 @@ class AgentSession:
         self.model: str | None = None
         self.permission_mode = permission_mode
         self._client: ClaudeSDKClient | None = None
+        self._reader: asyncio.Task | None = None
+        self._prompt = ""  # the text that opened the open turn; "" when Claude started it itself
+        self._records: list[dict] = []
+        self._turn_closed = asyncio.Event()
 
     # ------------------------------------------------------------------ lifecycle
 
@@ -238,17 +249,21 @@ class AgentSession:
             permission_mode=as_permission_mode(self.permission_mode),
             can_use_tool=self._can_use_tool,
             model=self.claude_model,
+            cli_path=CLI_PATH,
             resume=self.resume,
             session_id=None if self.resume else self.session_id,
         )
         self._client = ClaudeSDKClient(options=options)
         await self._client.connect()
+        self._reader = asyncio.create_task(self._read())
         self.log.write("session_started", session_id=self.session_id, cwd=str(self.cwd), resumed_from=self.resume)
 
     async def close(self) -> None:
         for req in list(self.pending.values()):
             if not req.future.done():
                 req.future.set_result(False)
+        if self._reader:
+            self._reader.cancel()
         if self._client:
             try:
                 await self._client.disconnect()
@@ -288,31 +303,61 @@ class AgentSession:
     async def run_turn(self, text: str) -> None:
         assert self._client, "call start() first"
         self.busy = True
+        self._prompt = text
+        self._records = [{"type": "prompt", "cwd": str(self.cwd), "prompt": text}]
+        self._spoken_this_turn = 0
+        self._turn_closed.clear()
         self.log.write("user_text", text=text)
         await self.emit({"type": "transcript", "role": "user", "text": text})
         await self.emit({"type": "status", "state": "working"})
-
-        records: list[dict] = [{"type": "prompt", "cwd": str(self.cwd), "prompt": text}]
-        error: str | None = None
-        self._spoken_this_turn = 0
         try:
             await self._client.query(text)
-            async for msg in self._client.receive_response():
+        except Exception as e:  # noqa: BLE001 - surface anything to the user, keep the server alive
+            await self._close_turn(f"{type(e).__name__}: {e}")
+            return
+        await self._turn_closed.wait()
+
+    async def _read(self) -> None:
+        """The one reader of the SDK stream, for the session's life. Claude starts turns of its
+        own, e.g. when a background task finishes. Reading only inside run_turn left those
+        buffered, and every reply then arrived one message late (2026-10-24)."""
+        assert self._client
+        try:
+            async for msg in self._client.receive_messages():
+                if not self.busy and isinstance(msg, SystemMessage) and msg.subtype == "init":
+                    self.busy = True  # a turn Claude started itself
+                    self._prompt = ""
+                    self._records = []
+                    self._spoken_this_turn = 0
+                    await self.emit({"type": "status", "state": "working"})
                 rec = to_record(msg)
-                records.append(rec)
+                self._records.append(rec)
                 self.log.write("sdk", message=rec)
                 await self._relay(msg)
+                # ponytail: closes whichever turn is open. If Claude starts a turn just as the user
+                # speaks, the user's turn reports done one result early; both replies are still spoken.
+                if isinstance(msg, ResultMessage) and self.busy:
+                    await self._close_turn(None)
+            error = "the Claude Code process exited"
         except Exception as e:  # noqa: BLE001 - surface anything to the user, keep the server alive
             error = f"{type(e).__name__}: {e}"
+        if self.busy:
+            await self._close_turn(error)
+        else:
             self.log.write("error", message=error)
-        finally:
-            self.busy = False
+            await self._say("error", f"Claude Code hit an error. {speakable(error)[:300]}")
 
-        await self._speak_outcome(records, error)
+    async def _close_turn(self, error: str | None) -> None:
+        if error:
+            self.log.write("error", message=error)
+        self.busy = False
+        records, prompt = self._records, self._prompt
+        await self._speak_outcome(records, error, asked=bool(prompt))
         await self.emit({"type": "status", "state": "idle"})
         await self.emit({"type": "turn_done"})
+        self._turn_closed.set()
 
-        if self.title is None and error is None and self._title_task is None:
+        if prompt and self.title is None and error is None and self._title_task is None:
             reply = " ".join(
                 b["text"]
                 for r in records
@@ -320,7 +365,7 @@ class AgentSession:
                 for b in r.get("content", [])
                 if b.get("block") == "TextBlock"
             )
-            self._title_task = asyncio.create_task(self._make_title(text, reply))
+            self._title_task = asyncio.create_task(self._make_title(prompt, reply))
 
     async def _make_title(self, prompt: str, reply: str) -> None:
         """One cheap Haiku call after the first turn names the session. Falls back to the prompt's opening words."""
@@ -333,6 +378,7 @@ class AgentSession:
                 system_prompt="You name coding sessions. Output only the title.",
                 setting_sources=[],
                 cwd=self.logs_dir,  # keep the throwaway transcript out of the user's project
+                cli_path=CLI_PATH,
             )
             text = TITLE_PROMPT.format(prompt=prompt[:1500], reply=reply[:1500])
             async for msg in query(prompt=text, options=options):
@@ -383,7 +429,7 @@ class AgentSession:
                 }
             )
 
-    async def _speak_outcome(self, records: list[dict], error: str | None) -> None:
+    async def _speak_outcome(self, records: list[dict], error: str | None, asked: bool) -> None:
         if error:
             await self._say("error", f"Claude Code hit an error. {speakable(error)[:300]}")
             return
@@ -396,7 +442,7 @@ class AgentSession:
 
         # Claude's final reply was already spoken by _relay as its last text block (it writes
         # for speech per VOICE_PROMPT).
-        if not self._spoken_this_turn:
+        if asked and not self._spoken_this_turn:  # a turn Claude started itself may stay quiet
             await self._say("reply", "Done, but Claude Code did not say anything.")
 
     async def say_aloud(self, text: str) -> int:

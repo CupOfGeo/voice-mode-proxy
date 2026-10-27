@@ -3,7 +3,7 @@
  * shut up. Kept apart from the reducer so the reducer stays pure. Returns a note for the
  * transcript when something worth showing happened.
  */
-import { hear, isSpeaking, stopSpeaking } from "./audio/player";
+import { hear, isSpeaking, playCue, stopSpeaking } from "./audio/player";
 import type { ServerMessage } from "./protocol";
 import type { State } from "./reducer";
 
@@ -23,6 +23,12 @@ export function effects(msg: ServerMessage, state: State): string | undefined {
     case "permission_request":
       hear(msg.spoken, msg.tts);
       return;
+    case "heard": // your words went through
+      playCue("heard");
+      return;
+    case "dropped": // too garbled to send; a quick cue so you know to say it again
+      playCue("miss");
+      return `didn't catch: "${msg.text}"`;
     case "vad":
       if (msg.speech && state.bargeIn && isSpeaking()) {
         stopSpeaking("barge-in");

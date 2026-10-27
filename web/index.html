@@ -291,6 +291,7 @@
       case "error": add("speak error", ev.message, "error"); break;
       case "turn_done": loadRecent(); break;
       case "heard": add("heard", `🎤 ${ev.text}`); break;
+      case "dropped": add("tool", `didn't catch: "${ev.text}"`); break;
       case "vad":
         $("mic").classList.toggle("speech", !!ev.speech && mic.on);
         if (ev.speech && voice.bargeIn && (voice.source || voice.active.size)) {
